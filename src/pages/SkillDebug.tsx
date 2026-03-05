@@ -215,7 +215,23 @@ export default function SkillDebug() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f9f9f9] font-sans flex flex-col">
+    <div className="h-screen bg-[#f9f9f9] font-sans flex flex-col overflow-hidden">
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #e5e7eb;
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #d1d5db;
+        }
+      `}</style>
       <Header showBack={true} onOpenSettings={() => {}}>
         <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
             <span>/</span>
@@ -225,13 +241,13 @@ export default function SkillDebug() {
         </div>
       </Header>
 
-      <main className="pt-20 px-4 lg:px-6 max-w-[1600px] mx-auto flex-1 w-full flex flex-col lg:flex-row gap-6 pb-6 h-[calc(100vh-1rem)]">
+      <main className="flex-1 flex flex-col lg:flex-row gap-6 px-4 lg:px-6 pb-6 pt-20 max-w-[1600px] mx-auto w-full overflow-hidden">
             
         {/* Left Panel: Configuration */}
         <div className="w-full lg:w-[320px] flex-shrink-0 flex flex-col gap-4 h-full overflow-hidden">
             
             {/* Tabs */}
-            <div className="flex items-center gap-1 p-1 bg-gray-200/50 rounded-lg w-full">
+            <div className="flex items-center gap-1 p-1 bg-gray-200/50 rounded-lg w-full flex-shrink-0">
                 <button
                     onClick={() => setActiveTab('config')}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all ${
@@ -256,7 +272,7 @@ export default function SkillDebug() {
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+            <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-sm p-5 custom-scrollbar">
                 {activeTab === 'config' ? (
                     <div className="space-y-6">
                         <div>
