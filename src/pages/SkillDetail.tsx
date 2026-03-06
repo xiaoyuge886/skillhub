@@ -54,6 +54,7 @@ export default function SkillDetail() {
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isPostingComment, setIsPostingComment] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const { t } = useLanguage();
   
   const fetchFiles = async () => {
@@ -85,6 +86,18 @@ export default function SkillDetail() {
       }
     } catch (error) {
       console.error('Failed to fetch comments:', error);
+    }
+  };
+
+  const fetchCurrentUser = async () => {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentUser(data.user);
+      }
+    } catch (error) {
+      // Not logged in, that's fine
     }
   };
 
@@ -164,6 +177,7 @@ export default function SkillDetail() {
     if (skill?.id) {
       loadInitialFiles();
       fetchComments();
+      fetchCurrentUser();
     }
   }, [skill?.id]);
 
@@ -596,24 +610,44 @@ export default function SkillDetail() {
                 )}
                 
                 <div className="flex gap-4 mt-8">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0"></div>
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden">
+                    {currentUser ? (
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.username}`} alt={currentUser.username} />
+                    ) : (
+                      <div className="w-full h-full bg-gray-200" />
+                    )}
+                  </div>
                   <div className="flex-1">
-                    <textarea 
-                      className="w-full border border-gray-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none h-32"
-                      placeholder={t('skillDetail.comments.placeholder')}
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      disabled={isPostingComment}
-                    ></textarea>
-                    <div className="flex justify-end mt-2">
-                       <button 
-                         onClick={handlePostComment}
-                         disabled={isPostingComment || !newComment.trim()}
-                         className="px-6 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-                       >
-                         {isPostingComment ? 'Posting...' : t('skillDetail.comments.post')}
-                       </button>
-                    </div>
+                    {!currentUser ? (
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+                        <p className="text-gray-500 mb-4">Please login to join the conversation</p>
+                        <button 
+                          onClick={() => navigate('/login')}
+                          className="px-6 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800 transition-colors"
+                        >
+                          Login / Register
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <textarea 
+                          className="w-full border border-gray-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none h-32"
+                          placeholder={t('skillDetail.comments.placeholder')}
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          disabled={isPostingComment}
+                        ></textarea>
+                        <div className="flex justify-end mt-2">
+                           <button 
+                             onClick={handlePostComment}
+                             disabled={isPostingComment || !newComment.trim()}
+                             className="px-6 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                           >
+                             {isPostingComment ? 'Posting...' : t('skillDetail.comments.post')}
+                           </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

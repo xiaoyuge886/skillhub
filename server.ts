@@ -695,6 +695,29 @@ async function startServer() {
           for (const skill of MOCK_SKILLS) {
             try {
               service.createSkill(skill);
+              
+              // Add some initial comments for each skill
+              service.addComment({
+                skillId: skill.id,
+                userId: 'system',
+                userName: 'Alex Chen',
+                userAvatar: 'https://picsum.photos/seed/alex/100/100',
+                content: 'This skill completely transformed our workflow. The consensus mechanism is surprisingly robust.'
+              });
+              service.addComment({
+                skillId: skill.id,
+                userId: 'system',
+                userName: 'Sarah Jones',
+                userAvatar: 'https://picsum.photos/seed/sarah/100/100',
+                content: 'Great work! Would love to see support for custom data sources in the next version.'
+              });
+              service.addComment({
+                skillId: skill.id,
+                userId: 'system',
+                userName: 'Mike Ross',
+                userAvatar: 'https://picsum.photos/seed/mike/100/100',
+                content: 'Documentation is top notch. Easy to integrate.'
+              });
             } catch (e) {
               console.error(`Failed to seed skill ${skill.name}:`, e);
             }
