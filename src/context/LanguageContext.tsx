@@ -14,12 +14,18 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const [language, setLanguage] = useState<Language>('en');
 
-  // Load language from localStorage if available
+  // Load language from localStorage or browser settings
   useEffect(() => {
     const savedLang = localStorage.getItem('language') as Language;
-    console.log('Loading language from localStorage:', savedLang);
     if (savedLang && (savedLang === 'en' || savedLang === 'zh')) {
       setLanguage(savedLang);
+    } else {
+      // Detect browser language
+      const browserLang = navigator.language.toLowerCase();
+      if (browserLang.startsWith('zh')) {
+        setLanguage('zh');
+        localStorage.setItem('language', 'zh');
+      }
     }
   }, []);
 

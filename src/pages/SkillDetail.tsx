@@ -51,6 +51,9 @@ export default function SkillDetail() {
   const [newFileName, setNewFileName] = useState('');
   const [newFileType, setNewFileType] = useState<'file' | 'folder'>('file');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
   const { t } = useLanguage();
   
   const fetchFiles = async () => {
@@ -70,6 +73,47 @@ export default function SkillDetail() {
       setIsLoadingFiles(false);
     }
     return [];
+  };
+
+  const fetchComments = async () => {
+    if (!id) return;
+    try {
+      const response = await fetch(`/api/skills/${id}/comments`);
+      if (response.ok) {
+        const data = await response.json();
+        setComments(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch comments:', error);
+    }
+  };
+
+  const handlePostComment = async () => {
+    if (!newComment.trim() || !id) return;
+    
+    setIsPostingComment(true);
+    try {
+      const response = await fetch(`/api/skills/${id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newComment })
+      });
+      
+      if (response.ok) {
+        setNewComment('');
+        await fetchComments();
+      } else if (response.status === 401) {
+        alert('Please login to post comments');
+        navigate('/login');
+      } else {
+        alert('Failed to post comment');
+      }
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      alert('Error posting comment');
+    } finally {
+      setIsPostingComment(false);
+    }
   };
 
   useEffect(() => {
@@ -119,6 +163,7 @@ export default function SkillDetail() {
 
     if (skill?.id) {
       loadInitialFiles();
+      fetchComments();
     }
   }, [skill?.id]);
 
@@ -522,25 +567,33 @@ export default function SkillDetail() {
 
             {/* Comments Section */}
             <div className="pt-10 border-t border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-8">{t('skillDetail.comments.title')} (3)</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-8">{t('skillDetail.comments.title')} ({comments.length})</h2>
               
               <div className="space-y-8">
-                {[
-                  { user: 'Alex Chen', handle: '@alexc', time: '2 days ago', content: 'This skill completely transformed our workflow. The consensus mechanism is surprisingly robust.', avatar: 'https://picsum.photos/seed/alex/100/100' },
-                  { user: 'Sarah Jones', handle: '@sjeeez', time: '1 week ago', content: 'Great work! Would love to see support for custom data sources in the next version.', avatar: 'https://picsum.photos/seed/sarah/100/100' },
-                  { user: 'Mike Ross', handle: '@mross', time: '2 weeks ago', content: 'Documentation is top notch. Easy to integrate.', avatar: 'https://picsum.photos/seed/mike/100/100' }
-                ].map((comment, i) => (
-                  <div key={i} className="flex gap-4">
-                    <img src={comment.avatar} alt={comment.user} className="w-10 h-10 rounded-full bg-gray-100" />
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-gray-900">{comment.user}</span>
-                        <span className="text-sm text-gray-500">{comment.time}</span>
+                {comments.length > 0 ? (
+                  comments.map((comment, i) => (
+                    <div key={comment.id || i} className="flex gap-4">
+                      <img 
+                        src={comment.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.user_name}`} 
+                        alt={comment.user_name} 
+                        className="w-10 h-10 rounded-full bg-gray-100" 
+                      />
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-gray-900">{comment.user_name}</span>
+                          <span className="text-sm text-gray-500">
+                            {new Date(comment.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 leading-relaxed">{comment.content}</p>
                       </div>
-                      <p className="text-gray-700 leading-relaxed">{comment.content}</p>
                     </div>
+                  ))
+                ) : (
+                  <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                    <p>No comments yet. Be the first to comment!</p>
                   </div>
-                ))}
+                )}
                 
                 <div className="flex gap-4 mt-8">
                   <div className="w-10 h-10 rounded-full bg-gray-200 flex-shrink-0"></div>
@@ -548,10 +601,17 @@ export default function SkillDetail() {
                     <textarea 
                       className="w-full border border-gray-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all resize-none h-32"
                       placeholder={t('skillDetail.comments.placeholder')}
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      disabled={isPostingComment}
                     ></textarea>
                     <div className="flex justify-end mt-2">
-                       <button className="px-6 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800 transition-colors">
-                         {t('skillDetail.comments.post')}
+                       <button 
+                         onClick={handlePostComment}
+                         disabled={isPostingComment || !newComment.trim()}
+                         className="px-6 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+                       >
+                         {isPostingComment ? 'Posting...' : t('skillDetail.comments.post')}
                        </button>
                     </div>
                   </div>

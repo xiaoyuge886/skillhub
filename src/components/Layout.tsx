@@ -22,10 +22,13 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { LogOut } from 'lucide-react';
 
 export const Header = ({ onOpenSettings, showBack, children }: { onOpenSettings: () => void, showBack?: boolean, children?: React.ReactNode }) => {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { user } = useAuth();
   
   return (
   <motion.header 
@@ -60,8 +63,17 @@ export const Header = ({ onOpenSettings, showBack, children }: { onOpenSettings:
       <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" onClick={onOpenSettings}>
         <Settings size={20} className="text-gray-600" />
       </button>
-      <button className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden">
-        <img src="https://picsum.photos/seed/user/100/100" alt="User" />
+      <button 
+        onClick={onOpenSettings}
+        className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden border border-blue-200"
+      >
+        {user ? (
+          <span className="text-xs font-bold text-blue-600 uppercase">
+            {user.username.substring(0, 2)}
+          </span>
+        ) : (
+          <User size={16} className="text-blue-600" />
+        )}
       </button>
     </div>
   </motion.header>
@@ -80,7 +92,15 @@ export const SkillIcon = ({ icon }: { icon: string }) => {
 
 export const SettingsPanel = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
   const { language, setLanguage, t } = useLanguage();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'account' | 'providers' | 'engines'>('account');
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    onClose();
+    navigate('/login');
+  };
 
   return (
     <AnimatePresence>
@@ -140,6 +160,10 @@ export const SettingsPanel = ({ isOpen, onClose }: { isOpen: boolean, onClose: (
               </nav>
 
               <div className="mt-auto pt-6 border-t border-gray-200 hidden md:block">
+                <button onClick={handleLogout} className="flex items-center gap-2 text-sm text-red-500 hover:text-red-700 transition-colors mb-4">
+                  <LogOut size={16} />
+                  {t('settings.signOut')}
+                </button>
                 <button onClick={onClose} className="flex items-center gap-2 text-sm text-gray-500 hover:text-black transition-colors">
                   <ArrowLeft size={16} />
                   {t('common.back')}
@@ -164,12 +188,14 @@ export const SettingsPanel = ({ isOpen, onClose }: { isOpen: boolean, onClose: (
                     
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-gray-50 rounded-2xl border border-gray-100">
                       <div className="flex items-center gap-4 w-full md:w-auto">
-                        <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden shrink-0">
-                          <img src="https://picsum.photos/seed/user/200/200" alt="User" className="w-full h-full object-cover" />
+                        <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden shrink-0 border border-blue-200">
+                          <span className="text-xl font-bold text-blue-600 uppercase">
+                            {user?.username.substring(0, 2)}
+                          </span>
                         </div>
                         <div>
-                          <h4 className="text-lg font-bold">Demo User</h4>
-                          <p className="text-gray-500 text-sm">user@example.com</p>
+                          <h4 className="text-lg font-bold">{user?.username || 'Guest'}</h4>
+                          <p className="text-gray-500 text-sm">{user?.email || 'No email'}</p>
                         </div>
                       </div>
                       
@@ -196,8 +222,8 @@ export const SettingsPanel = ({ isOpen, onClose }: { isOpen: boolean, onClose: (
                             中文
                           </button>
                         </div>
-                        <button className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                          Edit
+                        <button className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors md:hidden" onClick={handleLogout}>
+                          {t('settings.signOut')}
                         </button>
                       </div>
                     </div>

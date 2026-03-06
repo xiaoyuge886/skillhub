@@ -6,6 +6,7 @@ interface SkillContextType {
   addSkill: (skill: Skill) => Promise<void>;
   uploadSkill: (file: File) => Promise<any>;
   getSkill: (id: string) => Skill | undefined;
+  updateSkill: (id: string, updates: Partial<Skill>) => Promise<void>;
   refreshSkills: () => Promise<void>;
 }
 
@@ -74,8 +75,24 @@ export const SkillProvider = ({ children }: { children: ReactNode }) => {
     return skills.find(s => s.id === id);
   };
 
+  const updateSkill = async (id: string, updates: Partial<Skill>) => {
+    try {
+      const response = await fetch(`/api/skills/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      
+      if (response.ok) {
+        await fetchSkills();
+      }
+    } catch (error) {
+      console.error('Failed to update skill:', error);
+    }
+  };
+
   return (
-    <SkillContext.Provider value={{ skills, addSkill, uploadSkill, getSkill, refreshSkills: fetchSkills }}>
+    <SkillContext.Provider value={{ skills, addSkill, uploadSkill, getSkill, updateSkill, refreshSkills: fetchSkills }}>
       {children}
     </SkillContext.Provider>
   );

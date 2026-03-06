@@ -4,15 +4,21 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
 
 // Configure multer for file uploads
 const upload = multer({ dest: 'uploads/' });
+
+const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_for_demo';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+  app.use(cookieParser());
 
   // Health check - critical for platform detection
   app.get("/api/health", (req, res) => {
@@ -29,6 +35,103 @@ async function startServer() {
       return null;
     }
   }
+
+  async function getUserService() {
+    try {
+      const mod = await import('./server/db');
+      return mod.userService;
+    } catch (e) {
+      console.error("Failed to load database module:", e);
+      return null;
+    }
+  }
+
+  // Auth Middleware
+  const authenticateToken = (req: any, res: any, next: any) => {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Access denied' });
+
+    try {
+      const verified = jwt.verify(token, JWT_SECRET);
+      req.user = verified;
+      next();
+    } catch (err) {
+      res.status(403).json({ error: 'Invalid token' });
+    }
+  };
+
+  // Auth Routes
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { username, email, password } = req.body;
+      const service = await getUserService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const existingUser = service.getUserByUsername(username) || service.getUserByEmail(email);
+      if (existingUser) return res.status(400).json({ error: 'User already exists' });
+
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      const id = Math.random().toString(36).substring(2, 15);
+
+      service.createUser({ id, username, email, passwordHash });
+      res.status(201).json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to register' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      const service = await getUserService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const user = service.getUserByUsername(username);
+      if (!user) return res.status(400).json({ error: 'Invalid username or password' });
+
+      const validPassword = await bcrypt.compare(password, user.password_hash);
+      if (!validPassword) return res.status(400).json({ error: 'Invalid username or password' });
+
+      const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1d' });
+      
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 24 * 60 * 60 * 1000 // 1 day
+      });
+
+      res.json({ success: true, user: { id: user.id, username: user.username, email: user.email } });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Failed to login' });
+    }
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none'
+    });
+    res.json({ success: true });
+  });
+
+  app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
+    try {
+      const service = await getUserService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const user = service.getUserById(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      res.json({ user: { id: user.id, username: user.username, email: user.email } });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch user' });
+    }
+  });
 
   // API Routes
   app.get('/api/skills', async (req, res) => {
@@ -91,6 +194,45 @@ async function startServer() {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete skill' });
+    }
+  });
+
+  // Comments Routes
+  app.get('/api/skills/:id/comments', async (req, res) => {
+    try {
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const comments = service.getComments(req.params.id);
+      res.json(comments);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch comments' });
+    }
+  });
+
+  app.post('/api/skills/:id/comments', authenticateToken, async (req: any, res) => {
+    try {
+      const { content } = req.body;
+      if (!content) return res.status(400).json({ error: 'Comment content is required' });
+
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const userService = await getUserService();
+      const user = userService?.getUserById(req.user.id);
+
+      service.addComment({
+        skillId: req.params.id,
+        userId: req.user.id,
+        userName: user?.username || 'Unknown',
+        userAvatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username || 'anon'}`,
+        content
+      });
+
+      res.status(201).json({ success: true });
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+      res.status(500).json({ error: 'Failed to add comment' });
     }
   });
 

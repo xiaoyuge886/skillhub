@@ -34,6 +34,7 @@ import {
 import Markdown from 'react-markdown';
 import { Header } from '../components/Layout';
 import { useSkills } from '../context/SkillContext';
+import { useLanguage } from '../context/LanguageContext';
 
 const PROVIDERS = {
   'Anthropic': {
@@ -76,36 +77,50 @@ interface ConsoleMessage {
 }
 
 import { motion, AnimatePresence } from 'motion/react';
+import { Provider, Skill } from '../types';
 
 export default function SkillDebug() {
   const { id } = useParams<{ id: string }>();
-  const { getSkill, skills } = useSkills();
+  const { getSkill, skills, updateSkill } = useSkills();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [skill, setSkill] = useState<any>(null);
 
   // UI State
   const [activeTab, setActiveTab] = useState<'config' | 'docs'>('config');
-  const [rightPanelTab, setRightPanelTab] = useState<'console' | 'analysis'>('console');
+  const [rightPanelTab, setRightPanelTab] = useState<'console' | 'tools' | 'chain'>('console');
 
   // Debug State
-  const [selectedProvider, setSelectedProvider] = useState<string>('Anthropic');
+  const [selectedProvider, setSelectedProvider] = useState<Provider>('Anthropic');
   const [selectedModel, setSelectedModel] = useState<string>(PROVIDERS['Anthropic'].models[0]);
   
   // Custom Config State
   const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [customApiKey, setCustomApiKey] = useState('');
   const [customModel, setCustomModel] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
 
   const [promptInput, setPromptInput] = useState('');
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [isMobileConfigOpen, setIsMobileConfigOpen] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const foundSkill = getSkill(id || '');
     if (foundSkill) {
       setSkill(foundSkill);
+      if (foundSkill.provider) setSelectedProvider(foundSkill.provider);
+      if (foundSkill.model) {
+        if (foundSkill.provider === 'Custom') {
+          setCustomModel(foundSkill.model);
+        } else {
+          setSelectedModel(foundSkill.model);
+        }
+      }
+      if (foundSkill.baseUrl) setCustomBaseUrl(foundSkill.baseUrl);
+      if (foundSkill.apiKey) setCustomApiKey(foundSkill.apiKey);
+      if (foundSkill.systemPrompt) setSystemPrompt(foundSkill.systemPrompt);
     }
   }, [id, skills, getSkill]);
 
@@ -148,63 +163,100 @@ export default function SkillDebug() {
     setPromptInput('');
     setIsRunning(true);
 
-    // Simulate Agent Execution
-    simulateAgentRun(promptInput);
+    // Call real API
+    runAgent(promptInput);
   };
 
-  const simulateAgentRun = async (prompt: string) => {
-    // 1. Initial System/Assistant Response with Tasks
+  const runAgent = async (prompt: string) => {
     const responseId = (Date.now() + 1).toString();
     const initialResponse: ConsoleMessage = {
       id: responseId,
       type: 'assistant',
-      content: "I'll help you analyze that. Starting the workflow now...",
+      content: "",
       timestamp: Date.now(),
-      tasks: [
-        { id: '1', label: 'Analyze request intent', status: 'running' },
-        { id: '2', label: 'Fetch relevant data', status: 'pending' },
-        { id: '3', label: 'Generate visualization', status: 'pending' }
-      ]
+      tasks: []
     };
 
     setMessages(prev => [...prev, initialResponse]);
 
-    // Simulate Step 1 Completion
-    await new Promise(r => setTimeout(r, 1000));
-    updateMessageTasks(responseId, 0, 'completed');
-    updateMessageTasks(responseId, 1, 'running');
+    try {
+      const params = new URLSearchParams({
+        prompt,
+        engine: skill.engine || 'Mock',
+        skillId: skill.id,
+        apiKey: selectedProvider === 'Custom' ? customApiKey : '',
+        apiUrl: selectedProvider === 'Custom' ? customBaseUrl : '',
+        model: selectedProvider === 'Custom' ? customModel : selectedModel
+      });
 
-    // Simulate Step 2 Completion
-    await new Promise(r => setTimeout(r, 1500));
-    updateMessageTasks(responseId, 1, 'completed');
-    updateMessageTasks(responseId, 2, 'running');
+      const eventSource = new EventSource(`/api/debug/run?${params.toString()}`);
 
-    // Simulate Step 3 Completion & Add Artifacts
-    await new Promise(r => setTimeout(r, 1500));
-    updateMessageTasks(responseId, 2, 'completed');
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'assistant' && data.message?.content) {
+          const content = data.message.content.map((c: any) => c.text).join('\n');
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === responseId) {
+              return { ...msg, content: msg.content + content };
+            }
+            return msg;
+          }));
+        }
 
-    setMessages(prev => prev.map(msg => {
-      if (msg.id === responseId) {
-        return {
-          ...msg,
-          content: "Analysis complete. Here is the data visualization you requested.",
-          stats: {
-            duration: '4.2s',
-            tokens: 1250,
-            cost: '$0.004'
-          },
-          artifacts: [
-            { type: 'chart', data: { title: 'Sales Trend 2024' } }
-          ]
-        };
-      }
-      return msg;
-    }));
+        if (data.type === 'result') {
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === responseId) {
+              return {
+                ...msg,
+                stats: {
+                  duration: `${(data.duration_ms / 1000).toFixed(1)}s`,
+                  tokens: data.usage?.total_tokens || 0,
+                  cost: `$${data.total_cost_usd || 0}`
+                }
+              };
+            }
+            return msg;
+          }));
+        }
+      };
 
-    setIsRunning(false);
+      eventSource.addEventListener('done', () => {
+        eventSource.close();
+        setIsRunning(false);
+      });
+
+      eventSource.onerror = (err) => {
+        console.error('SSE Error:', err);
+        eventSource.close();
+        setIsRunning(false);
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === responseId) {
+            return { ...msg, content: msg.content + "\n\n[Error occurred during execution]" };
+          }
+          return msg;
+        }));
+      };
+
+    } catch (error) {
+      console.error('Failed to run agent:', error);
+      setIsRunning(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    if (!skill) return;
     
-    // Auto-switch to analysis tab if chart is generated
-    // setRightPanelTab('analysis'); 
+    const updates = {
+      provider: selectedProvider,
+      model: selectedProvider === 'Custom' ? customModel : selectedModel,
+      baseUrl: customBaseUrl,
+      apiKey: customApiKey,
+      systemPrompt: systemPrompt
+    };
+    
+    await updateSkill(skill.id, updates);
+    setIsConfigOpen(false);
   };
 
   const updateMessageTasks = (msgId: string, taskIndex: number, status: 'pending' | 'running' | 'completed') => {
@@ -222,18 +274,18 @@ export default function SkillDebug() {
     <div className="space-y-8">
         {/* Provider Section */}
         <div className="space-y-3">
-            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider ml-1">Runtime</h3>
+            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider ml-1">{t('debug.settings.runtime')}</h3>
             
             <div className="space-y-4">
                 <div className="group">
-                    <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">Provider</label>
+                    <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">{t('debug.settings.provider')}</label>
                     <div className="relative">
                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-focus-within:text-blue-500 transition-colors">
                             <Server size={16} strokeWidth={2} />
                         </div>
                         <select 
                             value={selectedProvider}
-                            onChange={(e) => setSelectedProvider(e.target.value)}
+                            onChange={(e) => setSelectedProvider(e.target.value as Provider)}
                             className="w-full bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl pl-10 pr-8 py-3 text-[13px] font-medium text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none appearance-none cursor-pointer"
                         >
                             {Object.keys(PROVIDERS).map(p => (
@@ -246,7 +298,7 @@ export default function SkillDebug() {
 
                 {selectedProvider !== 'Custom' ? (
                     <div className="group">
-                        <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">Model</label>
+                        <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">{t('debug.settings.model')}</label>
                         <div className="relative">
                             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-focus-within:text-blue-500 transition-colors">
                                 <Cpu size={16} strokeWidth={2} />
@@ -266,7 +318,7 @@ export default function SkillDebug() {
                 ) : (
                     <div className="space-y-4 p-4 bg-[#F5F5F7] rounded-2xl">
                         <div>
-                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Base URL</label>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{t('debug.settings.baseUrl')}</label>
                             <input 
                                 type="text"
                                 value={customBaseUrl}
@@ -276,7 +328,7 @@ export default function SkillDebug() {
                             />
                         </div>
                         <div>
-                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">API Key</label>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{t('debug.settings.apiKey')}</label>
                             <input 
                                 type="password"
                                 value={customApiKey}
@@ -286,7 +338,7 @@ export default function SkillDebug() {
                             />
                         </div>
                         <div>
-                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Model Name</label>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{t('debug.settings.modelName')}</label>
                             <input 
                                 type="text"
                                 value={customModel}
@@ -305,20 +357,32 @@ export default function SkillDebug() {
         {/* System Prompt Section */}
         <div className="space-y-3">
             <div className="flex items-center justify-between ml-1">
-                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">System Prompt</h3>
-                <button className="text-[11px] font-medium text-blue-500 hover:text-blue-600 transition-colors">Reset</button>
+                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t('debug.settings.systemPrompt')}</h3>
+                <button className="text-[11px] font-medium text-blue-500 hover:text-blue-600 transition-colors">{t('debug.settings.reset')}</button>
             </div>
             <textarea 
                 className="w-full h-40 bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl p-4 text-[13px] leading-relaxed resize-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all placeholder:text-gray-400"
-                placeholder="You are a helpful assistant..."
-                defaultValue={skill.systemPrompt || ''}
+                placeholder={t('debug.settings.systemPromptPlaceholder')}
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
             />
             <p className="text-[11px] text-gray-400 ml-1">
-                Define the core behavior and personality of your agent.
+                {t('debug.settings.systemPromptDesc')}
             </p>
         </div>
     </div>
   );
+
+  if (!skill) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#f9f9f9]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-black border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-500 font-medium">Loading skill...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-[#f9f9f9] font-sans flex flex-col overflow-hidden">
@@ -338,108 +402,109 @@ export default function SkillDebug() {
           background: #d1d5db;
         }
       `}</style>
-      <Header showBack={true} onOpenSettings={() => setIsMobileConfigOpen(true)}>
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
-            <span>/</span>
-            <span>{skill.name}</span>
-            <span>/</span>
-            <span className="text-gray-900">Debug</span>
-        </div>
+      <Header showBack={true} onOpenSettings={() => setIsConfigOpen(true)}>
       </Header>
 
-      <main className="flex-1 flex flex-col lg:flex-row gap-6 px-4 lg:px-6 pb-6 pt-20 max-w-[1600px] mx-auto w-full overflow-hidden">
+      <main className="flex-1 flex flex-col lg:flex-row gap-6 px-4 lg:px-6 pb-0 pt-20 max-w-[1600px] mx-auto w-full overflow-hidden">
             
-            {/* Left Panel: Configuration (Desktop) */}
-            <div className="hidden lg:flex w-[340px] flex-shrink-0 flex-col gap-6 h-full overflow-hidden bg-transparent border-none">
-                
-                {/* Apple-style Segmented Control */}
-                <div className="flex-shrink-0 px-1">
-                    <div className="relative flex items-center bg-[#E5E5EA] p-1 rounded-lg w-full h-9">
-                        {/* Active Tab Background Animation */}
-                        <motion.div
-                            layoutId="activeTab"
-                            className="absolute bg-white shadow-sm rounded-[6px] h-7 top-1"
-                            initial={false}
-                            animate={{
-                                width: 'calc(50% - 4px)',
-                                x: activeTab === 'config' ? 0 : '100%'
-                            }}
-                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                        />
-                        
-                        <button
-                            onClick={() => setActiveTab('config')}
-                            className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
-                                activeTab === 'config' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                        >
-                            Configuration
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('docs')}
-                            className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
-                                activeTab === 'docs' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                        >
-                            Documentation
-                        </button>
-                    </div>
-                </div>
+            {/* Left Panel: Removed as requested by user to use a popup instead */}
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-1 pb-4">
-                    <AnimatePresence mode="wait">
-                        {activeTab === 'config' ? (
-                            <motion.div 
-                                key="config"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                transition={{ duration: 0.2 }}
-                            >
-                                <ConfigurationContent />
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key="docs"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                transition={{ duration: 0.2 }}
-                                className="prose prose-sm max-w-none prose-headings:font-semibold prose-p:text-gray-600 prose-pre:bg-[#F5F5F7] prose-pre:border-none prose-pre:rounded-xl"
-                            >
-                                <Markdown>{skill.readme || '# No documentation available'}</Markdown>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            </div>
-
-            {/* Mobile Configuration Modal */}
+            {/* Configuration Modal (Desktop & Mobile) */}
             <AnimatePresence>
-                {isMobileConfigOpen && (
+                {isConfigOpen && (
                     <>
                         <motion.div 
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] lg:hidden"
-                            onClick={() => setIsMobileConfigOpen(false)}
+                            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
+                            onClick={() => setIsConfigOpen(false)}
                         />
                         <motion.div 
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                            className="fixed inset-x-0 bottom-0 top-10 bg-white shadow-2xl z-[70] rounded-t-2xl overflow-hidden flex flex-col lg:hidden"
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-white shadow-2xl z-[70] rounded-2xl overflow-hidden flex flex-col max-h-[85vh]"
                         >
                             <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-                                <h2 className="text-lg font-bold">Configuration</h2>
-                                <button onClick={() => setIsMobileConfigOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-black text-white rounded-lg flex items-center justify-center">
+                                        <Settings size={16} />
+                                    </div>
+                                    <h2 className="text-lg font-bold">{t('debug.settings.title')}</h2>
+                                </div>
+                                <button onClick={() => setIsConfigOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
                                     <X size={20} />
                                 </button>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-6">
-                                <ConfigurationContent />
+
+                            {/* Modal Tabs */}
+                            <div className="px-6 pt-4">
+                                <div className="relative flex items-center bg-[#E5E5EA] p-1 rounded-lg w-full h-9">
+                                    <motion.div
+                                        layoutId="modalTab"
+                                        className="absolute bg-white shadow-sm rounded-[6px] h-7 top-1"
+                                        initial={false}
+                                        animate={{
+                                            width: 'calc(50% - 4px)',
+                                            x: activeTab === 'config' ? 0 : '100%'
+                                        }}
+                                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                                    />
+                                    <button
+                                        onClick={() => setActiveTab('config')}
+                                        className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
+                                            activeTab === 'config' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        {t('debug.settings.tabs.config')}
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('docs')}
+                                        className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
+                                            activeTab === 'docs' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        {t('debug.settings.tabs.docs')}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                                <AnimatePresence mode="wait">
+                                    {activeTab === 'config' ? (
+                                        <motion.div 
+                                            key="config"
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: 10 }}
+                                            transition={{ duration: 0.2 }}
+                                        >
+                                            <ConfigurationContent />
+                                        </motion.div>
+                                    ) : (
+                                        <motion.div
+                                            key="docs"
+                                            initial={{ opacity: 0, x: 10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: -10 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="prose prose-sm max-w-none prose-headings:font-semibold prose-p:text-gray-600 prose-pre:bg-[#F5F5F7] prose-pre:border-none prose-pre:rounded-xl"
+                                        >
+                                            <Markdown>{skill?.readme || '# No documentation available'}</Markdown>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+
+                            <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-end">
+                                <button 
+                                    onClick={handleSaveConfig}
+                                    className="px-6 py-2 bg-black text-white rounded-xl font-medium hover:bg-gray-800 transition-all active:scale-95 shadow-lg shadow-black/10"
+                                >
+                                    {t('debug.settings.saveClose')}
+                                </button>
                             </div>
                         </motion.div>
                     </>
@@ -456,21 +521,28 @@ export default function SkillDebug() {
                         <Terminal size={16} />
                     </div>
                     <div>
-                        <h2 className="font-bold text-gray-900 text-sm">Intelligence Console</h2>
+                        <h2 className="font-bold text-gray-900 text-sm">{skill?.name} {t('debug.pageTitleSuffix')}</h2>
                         <div className="flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Operational</span>
+                            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{t('debug.systemOperational')}</span>
                         </div>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+                    <button 
+                        onClick={() => setIsConfigOpen(true)}
+                        className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                        title="Model Configuration"
+                    >
+                        <Settings size={12} />
+                        {t('debug.tabs.config')}
+                    </button>
+                    <div className="w-px h-3 bg-gray-300 mx-0.5" />
                     {[
-                        { id: 'console', label: 'Trace', icon: Activity },
-                        { id: 'browser', label: 'Browser', icon: Globe },
-                        { id: 'resources', label: 'Resources', icon: Box },
-                        { id: 'tools', label: 'Tools', icon: Wrench },
-                        { id: 'chain', label: 'Chain', icon: LinkIcon },
+                        { id: 'console', label: t('debug.tabs.trace'), icon: Activity },
+                        { id: 'tools', label: t('debug.tabs.tools'), icon: Wrench },
+                        { id: 'chain', label: t('debug.tabs.chain'), icon: LinkIcon },
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -499,7 +571,7 @@ export default function SkillDebug() {
                                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
                                     <Play size={32} className="text-gray-300 ml-1" />
                                 </div>
-                                <p className="text-sm font-medium">Ready to start debugging session</p>
+                                <p className="text-sm font-medium">{t('debug.placeholder.ready')}</p>
                             </div>
                         )}
 
@@ -588,48 +660,50 @@ export default function SkillDebug() {
                     </div>
 
                     {/* Input Area */}
-                    <div className="p-4 bg-white border-t border-gray-100">
-                        <div className="relative bg-gray-50 border border-gray-200 rounded-2xl transition-all focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500">
-                            <textarea
-                                value={promptInput}
-                                onChange={(e) => setPromptInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSendMessage();
-                                    }
-                                }}
-                                placeholder="Send a message to start debugging..."
-                                className="w-full bg-transparent border-none px-4 py-3 text-sm focus:ring-0 resize-none max-h-32 min-h-[52px]"
-                                rows={1}
-                            />
-                            <div className="flex items-center justify-between px-2 pb-2">
-                                <div className="flex items-center gap-1">
-                                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors">
-                                        <Paperclip size={18} />
-                                    </button>
-                                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors">
-                                        <Video size={18} />
-                                    </button>
-                                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors">
-                                        <Mic size={18} />
+                    <div className="p-6 bg-white border-t border-gray-100">
+                        <div className="max-w-4xl mx-auto">
+                            <div className="relative bg-white border border-gray-200 rounded-2xl shadow-sm transition-all focus-within:border-gray-300 focus-within:shadow-md">
+                                <textarea
+                                    value={promptInput}
+                                    onChange={(e) => setPromptInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSendMessage();
+                                        }
+                                    }}
+                                    placeholder={t('debug.placeholder.input')}
+                                    className="w-full bg-transparent border-none px-4 pt-4 pb-14 text-[15px] focus:ring-0 resize-none max-h-60 min-h-[60px] text-gray-800 placeholder:text-gray-400"
+                                    rows={1}
+                                />
+                                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-1">
+                                        <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all" title="Upload files">
+                                            <Paperclip size={18} />
+                                        </button>
+                                        <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all" title="Video">
+                                            <Video size={18} />
+                                        </button>
+                                        <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-all" title="Voice">
+                                            <Mic size={18} />
+                                        </button>
+                                    </div>
+                                    <button 
+                                        onClick={handleSendMessage}
+                                        disabled={!promptInput.trim() || isRunning}
+                                        className={`flex items-center justify-center w-10 h-10 rounded-xl transition-all ${
+                                            promptInput.trim() && !isRunning
+                                            ? 'bg-black text-white shadow-lg shadow-black/10 hover:bg-gray-800 hover:-translate-y-0.5 active:translate-y-0' 
+                                            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                        }`}
+                                    >
+                                        <Send size={18} />
                                     </button>
                                 </div>
-                                <button 
-                                    onClick={handleSendMessage}
-                                    disabled={!promptInput.trim() || isRunning}
-                                    className={`p-2 rounded-xl transition-all ${
-                                        promptInput.trim() && !isRunning
-                                        ? 'bg-black text-white shadow-md hover:bg-gray-800' 
-                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                    }`}
-                                >
-                                    <Send size={18} />
-                                </button>
                             </div>
-                        </div>
-                        <div className="text-center mt-2">
-                            <span className="text-[10px] text-gray-400">AI can make mistakes. Please review generated results.</span>
+                            <div className="text-center mt-3">
+                                <span className="text-[11px] text-gray-400 font-medium">{t('debug.placeholder.disclaimer')}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -637,84 +711,100 @@ export default function SkillDebug() {
                 {/* Analysis Stream (Right - Visible on large screens or when tab active) */}
                 <div className={`w-[400px] border-l border-gray-200 bg-white flex flex-col ${rightPanelTab === 'console' ? 'hidden xl:flex' : 'flex'}`}>
                     <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                        <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                            <Activity size={16} className="text-blue-500" />
-                            ANALYSIS STREAM
+                        <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2 uppercase tracking-tight">
+                            {rightPanelTab === 'console' && <><Activity size={16} className="text-blue-500" /> {t('debug.streams.trace')}</>}
+                            {rightPanelTab === 'tools' && <><Wrench size={16} className="text-orange-500" /> {t('debug.streams.tools')}</>}
+                            {rightPanelTab === 'chain' && <><LinkIcon size={16} className="text-purple-500" /> {t('debug.streams.chain')}</>}
                         </h3>
                         <div className="flex bg-gray-100 rounded-lg p-0.5">
-                            <button className="px-2 py-1 text-[10px] font-medium bg-white shadow-sm rounded-md text-gray-900">Report</button>
-                            <button className="px-2 py-1 text-[10px] font-medium text-gray-500 hover:text-gray-900">Deep Dive</button>
+                            <button className="px-2 py-1 text-[10px] font-medium bg-white shadow-sm rounded-md text-gray-900">{t('debug.streams.live')}</button>
+                            <button className="px-2 py-1 text-[10px] font-medium text-gray-500 hover:text-gray-900">{t('debug.streams.history')}</button>
                         </div>
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto p-6">
-                        <div className="prose prose-sm">
-                            <p className="text-gray-600 mb-6">
-                                Based on your request, I've generated a visualization of the sales trends. The data indicates a strong upward trajectory in Q3.
-                            </p>
-                        </div>
-
-                        {/* Chart Visualization Mock */}
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-4 mb-4">
-                                <button className="flex items-center gap-2 px-3 py-1.5 bg-black text-white text-xs rounded-lg shadow-sm">
-                                    <LineChart size={14} /> Line
-                                </button>
-                                <button className="flex items-center gap-2 px-3 py-1.5 text-gray-500 hover:bg-gray-50 text-xs rounded-lg transition-colors">
-                                    <BarChart2 size={14} /> Bar
-                                </button>
-                                <button className="flex items-center gap-2 px-3 py-1.5 text-gray-500 hover:bg-gray-50 text-xs rounded-lg transition-colors">
-                                    <PieChart size={14} /> Pie
-                                </button>
-                            </div>
-
-                            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                                <h4 className="text-center font-bold text-gray-900 mb-2">2024 Sales Trend Analysis</h4>
-                                <p className="text-center text-xs text-gray-500 mb-8">Revenue (Millions USD)</p>
-                                
-                                {/* CSS-only Mock Chart */}
-                                <div className="h-64 w-full flex items-end justify-between gap-2 px-4 relative">
-                                    {/* Grid Lines */}
-                                    <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-                                        {[...Array(5)].map((_, i) => (
-                                            <div key={i} className="w-full h-px bg-gray-50 border-t border-dashed border-gray-200"></div>
-                                        ))}
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                        {rightPanelTab === 'console' && (
+                            <div className="space-y-6">
+                                <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100/50">
+                                    <p className="text-[13px] text-blue-900 leading-relaxed">
+                                        <span className="font-bold">{t('debug.streams.live')}:</span> {t('debug.monitoring.traceDesc')}
+                                    </p>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                                        <span>Raw Output</span>
+                                        <span className="text-blue-500">{t('debug.monitoring.streaming')}</span>
                                     </div>
-                                    
-                                    {/* Bars/Points */}
-                                    {[30, 45, 42, 55, 78, 82, 80, 95, 100, 115, 120, 125].map((h, i) => (
-                                        <div key={i} className="relative group w-full flex flex-col justify-end items-center h-full z-10">
-                                            <div 
-                                                className="w-full max-w-[20px] bg-blue-500 rounded-t-sm opacity-80 group-hover:opacity-100 transition-all duration-500"
-                                                style={{ height: `${h * 0.6}%` }}
-                                            ></div>
-                                            <div className="absolute -bottom-6 text-[10px] text-gray-400">{i + 1}M</div>
-                                            
-                                            {/* Tooltip */}
-                                            <div className="absolute -top-8 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                                ${h * 10}k
+                                    <div className="bg-gray-900 rounded-xl p-4 font-mono text-[12px] text-gray-300 leading-relaxed shadow-inner">
+                                        <div className="text-green-400 mb-2">{"{"}</div>
+                                        <div className="pl-4">
+                                            <div>"status": "generating",</div>
+                                            <div>"tokens_per_sec": 45.2,</div>
+                                            <div>"buffer_size": "1.2kb",</div>
+                                            <div className="text-blue-400">"content": "Analyzing sales data..."</div>
+                                        </div>
+                                        <div className="text-green-400">{"}"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {rightPanelTab === 'tools' && (
+                            <div className="space-y-6">
+                                <div className="p-4 bg-orange-50/50 rounded-xl border border-orange-100/50">
+                                    <p className="text-[13px] text-orange-900 leading-relaxed">
+                                        <span className="font-bold">Tool Monitor:</span> {t('debug.monitoring.toolDesc')}
+                                    </p>
+                                </div>
+                                <div className="space-y-3">
+                                    {[
+                                        { name: 'get_sales_data', status: 'success', time: '1.2s' },
+                                        { name: 'generate_chart', status: 'running', time: '0.4s' },
+                                        { name: 'send_notification', status: 'pending', time: '-' }
+                                    ].map((tool, i) => (
+                                        <div key={i} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-xl shadow-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-2 h-2 rounded-full ${
+                                                    tool.status === 'success' ? 'bg-green-500' :
+                                                    tool.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'
+                                                }`} />
+                                                <span className="text-[13px] font-mono font-medium text-gray-700">{tool.name}</span>
+                                            </div>
+                                            <span className="text-[11px] text-gray-400 font-mono">{tool.time}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {rightPanelTab === 'chain' && (
+                            <div className="space-y-6">
+                                <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-100/50">
+                                    <p className="text-[13px] text-purple-900 leading-relaxed">
+                                        <span className="font-bold">Call Chain:</span> {t('debug.monitoring.chainDesc')}
+                                    </p>
+                                </div>
+                                <div className="relative pl-4 space-y-8">
+                                    <div className="absolute left-[19px] top-2 bottom-2 w-px bg-gray-100" />
+                                    {[
+                                        { label: 'User Input', type: 'input' },
+                                        { label: 'Intent Classifier', type: 'model' },
+                                        { label: 'Data Retrieval', type: 'tool' },
+                                        { label: 'Response Synthesis', type: 'model' }
+                                    ].map((step, i) => (
+                                        <div key={i} className="relative flex items-center gap-4">
+                                            <div className={`w-3 h-3 rounded-full border-2 border-white shadow-sm z-10 ${
+                                                i === 0 ? 'bg-blue-500' : 'bg-purple-500'
+                                            }`} />
+                                            <div className="flex-1 p-3 bg-white border border-gray-100 rounded-xl shadow-sm">
+                                                <span className="text-[12px] font-bold text-gray-900">{step.label}</span>
+                                                <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">{step.type}</div>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-
-                            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                                <h5 className="text-xs font-bold text-blue-800 mb-2 flex items-center gap-2">
-                                    <Activity size={14} /> Key Insights
-                                </h5>
-                                <ul className="space-y-2">
-                                    <li className="text-xs text-blue-700 flex items-start gap-2">
-                                        <span className="mt-1 w-1 h-1 bg-blue-500 rounded-full flex-shrink-0"></span>
-                                        Significant growth observed in Q3 (August-September).
-                                    </li>
-                                    <li className="text-xs text-blue-700 flex items-start gap-2">
-                                        <span className="mt-1 w-1 h-1 bg-blue-500 rounded-full flex-shrink-0"></span>
-                                        Retention rates stabilized at 85% during peak season.
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
+                        )}
                     </div>
                 </div>
             </div>

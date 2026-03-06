@@ -29,6 +29,10 @@ db.exec(`
     security_message TEXT,
     readme TEXT,
     local_path TEXT,
+    system_prompt TEXT,
+    model TEXT,
+    base_url TEXT,
+    api_key TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -43,13 +47,42 @@ db.exec(`
     security_openClaw TEXT,
     FOREIGN KEY (skill_id) REFERENCES skills (id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    user_avatar TEXT,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (skill_id) REFERENCES skills (id) ON DELETE CASCADE
+  );
 `);
 
-// Migration: Add local_path if it doesn't exist
-try {
-  db.exec(`ALTER TABLE skills ADD COLUMN local_path TEXT;`);
-} catch (e) {
-  // Column already exists or other error
+// Migration: Add new columns if they don't exist
+const migrations = [
+  'ALTER TABLE skills ADD COLUMN local_path TEXT;',
+  'ALTER TABLE skills ADD COLUMN system_prompt TEXT;',
+  'ALTER TABLE skills ADD COLUMN model TEXT;',
+  'ALTER TABLE skills ADD COLUMN base_url TEXT;',
+  'ALTER TABLE skills ADD COLUMN api_key TEXT;'
+];
+
+for (const migration of migrations) {
+  try {
+    db.exec(migration);
+  } catch (e) {
+    // Column already exists or other error
+  }
 }
 
 // Helper to parse history changes from JSON
@@ -63,6 +96,28 @@ const parseHistory = (historyRows: any[]) => {
       openClaw: row.security_openClaw
     }
   }));
+};
+
+export const userService = {
+  createUser: (user: { id: string, username: string, email: string, passwordHash: string }) => {
+    const stmt = db.prepare(`
+      INSERT INTO users (id, username, email, password_hash)
+      VALUES (@id, @username, @email, @passwordHash)
+    `);
+    return stmt.run(user);
+  },
+
+  getUserByUsername: (username: string) => {
+    return db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
+  },
+
+  getUserByEmail: (email: string) => {
+    return db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+  },
+
+  getUserById: (id: string) => {
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+  }
 };
 
 export const skillService = {
@@ -89,6 +144,10 @@ export const skillService = {
           message: skill.security_message
         },
         localPath: skill.local_path,
+        systemPrompt: skill.system_prompt,
+        model: skill.model,
+        baseUrl: skill.base_url,
+        apiKey: skill.api_key,
         history: parseHistory(history)
       };
     });
@@ -119,6 +178,10 @@ export const skillService = {
         message: skill.security_message
       },
       localPath: skill.local_path,
+      systemPrompt: skill.system_prompt,
+      model: skill.model,
+      baseUrl: skill.base_url,
+      apiKey: skill.api_key,
       history: parseHistory(history)
     };
   },
@@ -130,13 +193,13 @@ export const skillService = {
         author_name, author_handle, author_avatar,
         stats_stars, stats_downloads, stats_installs,
         security_virusTotal, security_openClaw, security_confidence, security_message,
-        readme, local_path
+        readme, local_path, system_prompt, model, base_url, api_key
       ) VALUES (
         @id, @name, @description, @type, @provider, @engine, @version, @status, @icon,
         @author_name, @author_handle, @author_avatar,
         @stats_stars, @stats_downloads, @stats_installs,
         @security_virusTotal, @security_openClaw, @security_confidence, @security_message,
-        @readme, @local_path
+        @readme, @local_path, @system_prompt, @model, @base_url, @api_key
       )
     `);
 
@@ -161,7 +224,11 @@ export const skillService = {
       security_confidence: skill.security.confidence,
       security_message: skill.security.message,
       readme: skill.readme,
-      local_path: skill.localPath || null
+      local_path: skill.localPath || null,
+      system_prompt: skill.systemPrompt || null,
+      model: skill.model || null,
+      base_url: skill.baseUrl || null,
+      api_key: skill.apiKey || null
     });
 
     // Insert history if exists
@@ -200,10 +267,20 @@ export const skillService = {
     
     // ... map other fields similarly or use a more generic mapper if strict type checking allows
     // For brevity, mapping top-level fields:
-    const topLevelFields = ['name', 'description', 'type', 'provider', 'engine', 'version', 'status', 'icon', 'readme', 'local_path'];
+    const topLevelFields = [
+      'name', 'description', 'type', 'provider', 'engine', 'version', 'status', 'icon', 'readme', 
+      'local_path', 'system_prompt', 'model', 'base_url', 'api_key'
+    ];
+    
     for (const field of topLevelFields) {
+      // Map camelCase to snake_case for DB columns if necessary
+      const dbField = field === 'localPath' ? 'local_path' : 
+                     field === 'systemPrompt' ? 'system_prompt' :
+                     field === 'baseUrl' ? 'base_url' :
+                     field === 'apiKey' ? 'api_key' : field;
+      
       if (updates[field] !== undefined) {
-        fields.push(`${field} = @${field}`);
+        fields.push(`${dbField} = @${field}`);
         values[field] = updates[field];
       }
     }
@@ -218,5 +295,17 @@ export const skillService = {
 
   deleteSkill: (id: string) => {
     return db.prepare('DELETE FROM skills WHERE id = ?').run(id);
+  },
+
+  getComments: (skillId: string) => {
+    return db.prepare('SELECT * FROM comments WHERE skill_id = ? ORDER BY created_at DESC').all(skillId) as any[];
+  },
+
+  addComment: (comment: { skillId: string, userId: string, userName: string, userAvatar: string, content: string }) => {
+    const stmt = db.prepare(`
+      INSERT INTO comments (skill_id, user_id, user_name, user_avatar, content)
+      VALUES (@skillId, @userId, @userName, @userAvatar, @content)
+    `);
+    return stmt.run(comment);
   }
 };

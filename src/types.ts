@@ -1,5 +1,5 @@
-export type Provider = 'Gemini' | 'Claude' | 'OpenAI' | 'Mistral';
-export type AgentEngine = 'AgentScope' | 'Claude Agent SDK' | 'LangChain' | 'AutoGen';
+export type Provider = 'Gemini' | 'Claude' | 'OpenAI' | 'Mistral' | 'Anthropic' | 'Custom';
+export type AgentEngine = 'AgentScope' | 'Claude Agent SDK' | 'LangChain' | 'AutoGen' | 'Mock';
 export type SkillType = 'Analysis' | 'Coding' | 'Creative' | 'Utility';
 
 export interface SecurityScan {
@@ -32,6 +32,10 @@ export interface Skill {
   security: SecurityScan;
   readme: string;
   localPath?: string;
+  systemPrompt?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string;
   history: {
     version: string;
     date: string;

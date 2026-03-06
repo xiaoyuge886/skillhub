@@ -129,6 +129,54 @@ export const translations = {
       language: 'Language',
       globalProviders: 'Global Providers',
       agentEngines: 'Agent Engines',
+      signOut: 'Sign Out',
+    },
+    debug: {
+      consoleTitle: 'Intelligence Console',
+      pageTitleSuffix: 'Skill Debug',
+      systemOperational: 'System Operational',
+      tabs: {
+        trace: 'Trace',
+        tools: 'Tools',
+        chain: 'Chain',
+        config: 'Config',
+      },
+      placeholder: {
+        ready: 'Ready to start debugging session',
+        input: 'Send a message to start debugging...',
+        disclaimer: 'AI can make mistakes. Please review generated results.',
+      },
+      streams: {
+        trace: 'TRACE STREAM',
+        tools: 'TOOL EXECUTION',
+        chain: 'CALL CHAIN',
+        live: 'Live',
+        history: 'History',
+      },
+      settings: {
+        title: 'Skill Settings',
+        tabs: {
+          config: 'Configuration',
+          docs: 'Documentation',
+        },
+        runtime: 'Runtime',
+        provider: 'Provider',
+        model: 'Model',
+        systemPrompt: 'System Prompt',
+        reset: 'Reset',
+        systemPromptPlaceholder: 'You are a helpful assistant...',
+        baseUrl: 'Base URL',
+        apiKey: 'API Key',
+        modelName: 'Model Name',
+        saveClose: 'Save & Close',
+        systemPromptDesc: 'Define the core behavior and personality of your agent.',
+      },
+      monitoring: {
+        traceDesc: 'Real-time Stream: Monitoring AI response generation and data flow.',
+        streaming: 'Streaming...',
+        toolDesc: 'Tool Monitor: Tracking external tool calls and execution results.',
+        chainDesc: 'Call Chain: Visualizing the sequence of model and tool interactions.',
+      }
     }
   },
   zh: {
@@ -260,6 +308,54 @@ export const translations = {
       language: '语言',
       globalProviders: '全局模型提供商',
       agentEngines: 'Agent 引擎',
+      signOut: '退出登录',
+    },
+    debug: {
+      consoleTitle: '智能控制台',
+      pageTitleSuffix: '技能调试',
+      systemOperational: '系统运行中',
+      tabs: {
+        trace: '追踪',
+        tools: '工具',
+        chain: '调用链',
+        config: '配置',
+      },
+      placeholder: {
+        ready: '准备开始调试会话',
+        input: '发送消息开始调试...',
+        disclaimer: 'AI 可能会犯错。请核实生成的结果。',
+      },
+      streams: {
+        trace: '追踪流',
+        tools: '工具执行',
+        chain: '调用链',
+        live: '实时',
+        history: '历史',
+      },
+      settings: {
+        title: '技能设置',
+        tabs: {
+          config: '配置',
+          docs: '文档',
+        },
+        runtime: '运行时',
+        provider: '模型提供商',
+        model: '模型',
+        systemPrompt: '系统提示词 (System Prompt)',
+        reset: '重置',
+        systemPromptPlaceholder: '你是一个得力的助手...',
+        baseUrl: '接口地址 (Base URL)',
+        apiKey: 'API 密钥',
+        modelName: '模型名称',
+        saveClose: '保存并关闭',
+        systemPromptDesc: '定义 Agent 的核心行为和性格。',
+      },
+      monitoring: {
+        traceDesc: '实时流：监控 AI 响应生成和数据流。',
+        streaming: '流式传输中...',
+        toolDesc: '工具监控：追踪外部工具调用和执行结果。',
+        chainDesc: '调用链：可视化模型与工具交互的序列。',
+      }
     }
   }
 };
