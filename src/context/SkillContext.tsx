@@ -4,6 +4,7 @@ import { Skill } from '../types';
 interface SkillContextType {
   skills: Skill[];
   addSkill: (skill: Skill) => Promise<void>;
+  uploadSkill: (file: File) => Promise<any>;
   getSkill: (id: string) => Skill | undefined;
   refreshSkills: () => Promise<void>;
 }
@@ -45,12 +46,36 @@ export const SkillProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const uploadSkill = async (file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/skills/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        await fetchSkills();
+        return data;
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Failed to upload skill:', error);
+      throw error;
+    }
+  };
+
   const getSkill = (id: string) => {
     return skills.find(s => s.id === id);
   };
 
   return (
-    <SkillContext.Provider value={{ skills, addSkill, getSkill, refreshSkills: fetchSkills }}>
+    <SkillContext.Provider value={{ skills, addSkill, uploadSkill, getSkill, refreshSkills: fetchSkills }}>
       {children}
     </SkillContext.Provider>
   );

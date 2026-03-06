@@ -31,6 +31,7 @@ export interface Skill {
   };
   security: SecurityScan;
   readme: string;
+  localPath?: string;
   history: {
     version: string;
     date: string;

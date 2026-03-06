@@ -28,6 +28,7 @@ db.exec(`
     security_confidence TEXT,
     security_message TEXT,
     readme TEXT,
+    local_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -43,6 +44,13 @@ db.exec(`
     FOREIGN KEY (skill_id) REFERENCES skills (id) ON DELETE CASCADE
   );
 `);
+
+// Migration: Add local_path if it doesn't exist
+try {
+  db.exec(`ALTER TABLE skills ADD COLUMN local_path TEXT;`);
+} catch (e) {
+  // Column already exists or other error
+}
 
 // Helper to parse history changes from JSON
 const parseHistory = (historyRows: any[]) => {
@@ -80,6 +88,7 @@ export const skillService = {
           confidence: skill.security_confidence,
           message: skill.security_message
         },
+        localPath: skill.local_path,
         history: parseHistory(history)
       };
     });
@@ -109,6 +118,7 @@ export const skillService = {
         confidence: skill.security_confidence,
         message: skill.security_message
       },
+      localPath: skill.local_path,
       history: parseHistory(history)
     };
   },
@@ -120,13 +130,13 @@ export const skillService = {
         author_name, author_handle, author_avatar,
         stats_stars, stats_downloads, stats_installs,
         security_virusTotal, security_openClaw, security_confidence, security_message,
-        readme
+        readme, local_path
       ) VALUES (
         @id, @name, @description, @type, @provider, @engine, @version, @status, @icon,
         @author_name, @author_handle, @author_avatar,
         @stats_stars, @stats_downloads, @stats_installs,
         @security_virusTotal, @security_openClaw, @security_confidence, @security_message,
-        @readme
+        @readme, @local_path
       )
     `);
 
@@ -150,7 +160,8 @@ export const skillService = {
       security_openClaw: skill.security.openClaw,
       security_confidence: skill.security.confidence,
       security_message: skill.security.message,
-      readme: skill.readme
+      readme: skill.readme,
+      local_path: skill.localPath || null
     });
 
     // Insert history if exists
@@ -189,7 +200,7 @@ export const skillService = {
     
     // ... map other fields similarly or use a more generic mapper if strict type checking allows
     // For brevity, mapping top-level fields:
-    const topLevelFields = ['name', 'description', 'type', 'provider', 'engine', 'version', 'status', 'icon', 'readme'];
+    const topLevelFields = ['name', 'description', 'type', 'provider', 'engine', 'version', 'status', 'icon', 'readme', 'local_path'];
     for (const field of topLevelFields) {
       if (updates[field] !== undefined) {
         fields.push(`${field} = @${field}`);

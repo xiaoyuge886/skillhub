@@ -1,7 +1,12 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import AdmZip from 'adm-zip';
 
-// Dynamic imports will be used for DB to prevent startup crashes if bindings fail
+// Configure multer for file uploads
+const upload = multer({ dest: 'uploads/' });
 
 async function startServer() {
   const app = express();
@@ -86,6 +91,391 @@ async function startServer() {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete skill' });
+    }
+  });
+
+  // Get Skill Files List
+  app.get('/api/skills/:id/files', async (req, res) => {
+    try {
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const skill = service.getSkillById(req.params.id);
+      if (!skill || !skill.localPath) {
+        return res.json([]); // No local files
+      }
+
+      if (!fs.existsSync(skill.localPath)) {
+        return res.status(404).json({ error: 'Skill directory not found' });
+      }
+
+      const getFiles = (dir: string, baseDir: string): any[] => {
+        const items = fs.readdirSync(dir);
+        return items.map(item => {
+          const fullPath = path.join(dir, item);
+          const relativePath = path.relative(baseDir, fullPath);
+          const stats = fs.statSync(fullPath);
+          
+          if (stats.isDirectory()) {
+            return {
+              name: item,
+              path: relativePath,
+              type: 'folder',
+              children: getFiles(fullPath, baseDir)
+            };
+          } else {
+            return {
+              name: item,
+              path: relativePath,
+              type: 'file'
+            };
+          }
+        });
+      };
+
+      const files = getFiles(skill.localPath, skill.localPath);
+      res.json(files);
+    } catch (error) {
+      console.error('Failed to list files:', error);
+      res.status(500).json({ error: 'Failed to list files' });
+    }
+  });
+
+  // Get Skill File Content
+  app.get('/api/skills/:id/files/content', async (req, res) => {
+    try {
+      const { path: filePath } = req.query;
+      if (!filePath) return res.status(400).json({ error: 'Missing file path' });
+
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const skill = service.getSkillById(req.params.id);
+      if (!skill || !skill.localPath) {
+        return res.status(404).json({ error: 'Skill or local path not found' });
+      }
+
+      const fullPath = path.join(skill.localPath, String(filePath));
+      
+      // Security check: ensure the file is within the skill's directory
+      if (!fullPath.startsWith(path.resolve(skill.localPath))) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      res.json({ content });
+    } catch (error) {
+      console.error('Failed to read file:', error);
+      res.status(500).json({ error: 'Failed to read file' });
+    }
+  });
+
+  // Update Skill File Content
+  app.post('/api/skills/:id/files/content', async (req, res) => {
+    try {
+      const { path: filePath, content } = req.body;
+      if (!filePath) return res.status(400).json({ error: 'Missing file path' });
+      if (content === undefined) return res.status(400).json({ error: 'Missing content' });
+
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      let skill = service.getSkillById(req.params.id);
+      if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+      // If mock skill has no local path, create one
+      if (!skill.localPath) {
+        const skillsDir = path.join(process.cwd(), 'skills');
+        if (!fs.existsSync(skillsDir)) fs.mkdirSync(skillsDir);
+        
+        const newPath = path.join(skillsDir, skill.id);
+        if (!fs.existsSync(newPath)) fs.mkdirSync(newPath);
+        
+        service.updateSkill(skill.id, { local_path: newPath });
+        skill = service.getSkillById(req.params.id); // Refresh
+      }
+
+      if (!skill || !skill.localPath) {
+        return res.status(500).json({ error: 'Failed to ensure local path' });
+      }
+
+      const fullPath = path.join(skill.localPath, String(filePath));
+      
+      // Security check
+      const resolvedBase = path.resolve(skill.localPath);
+      const resolvedFile = path.resolve(fullPath);
+      if (!resolvedFile.startsWith(resolvedBase)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      fs.writeFileSync(fullPath, content, 'utf-8');
+
+      // If this is the main readme file, update the database column too
+      const isReadme = ['skill.md', 'readme.md'].includes(String(filePath).toLowerCase());
+      if (isReadme) {
+        service.updateSkill(req.params.id, { readme: content });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to update file:', error);
+      res.status(500).json({ error: 'Failed to update file' });
+    }
+  });
+
+  // Create New Skill File
+  app.post('/api/skills/:id/files/create', async (req, res) => {
+    try {
+      const { path: filePath, name, type = 'file' } = req.body;
+      if (!name) return res.status(400).json({ error: 'Missing name' });
+
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      let skill = service.getSkillById(req.params.id);
+      if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+      // If mock skill has no local path, create one
+      if (!skill.localPath) {
+        const skillsDir = path.join(process.cwd(), 'skills');
+        if (!fs.existsSync(skillsDir)) fs.mkdirSync(skillsDir);
+        
+        const newPath = path.join(skillsDir, skill.id);
+        if (!fs.existsSync(newPath)) fs.mkdirSync(newPath);
+        
+        service.updateSkill(skill.id, { local_path: newPath });
+        skill = service.getSkillById(req.params.id); // Refresh
+      }
+
+      if (!skill || !skill.localPath) {
+        return res.status(500).json({ error: 'Failed to ensure local path' });
+      }
+
+      const targetDir = filePath ? path.join(skill.localPath, String(filePath)) : skill.localPath;
+      const fullPath = path.join(targetDir, name);
+      
+      // Security check
+      const resolvedBase = path.resolve(skill.localPath);
+      const resolvedFile = path.resolve(fullPath);
+      if (!resolvedFile.startsWith(resolvedBase)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (fs.existsSync(fullPath)) {
+        return res.status(400).json({ error: 'File or directory already exists' });
+      }
+
+      if (type === 'folder') {
+        fs.mkdirSync(fullPath, { recursive: true });
+      } else {
+        fs.writeFileSync(fullPath, '', 'utf-8');
+      }
+
+      res.status(201).json({ success: true });
+    } catch (error) {
+      console.error('Failed to create file/folder:', error);
+      res.status(500).json({ error: 'Failed to create file/folder' });
+    }
+  });
+
+  // Upload Skill Endpoint
+  app.post('/api/skills/upload', upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const service = await getSkillService();
+      if (!service) return res.status(503).json({ error: 'Database unavailable' });
+
+      const zipPath = req.file.path;
+      const zip = new AdmZip(zipPath);
+      
+      // Create skills directory if it doesn't exist
+      const skillsDir = path.join(process.cwd(), 'skills');
+      if (!fs.existsSync(skillsDir)) {
+        fs.mkdirSync(skillsDir);
+      }
+
+      // Extract to a temporary directory first to read metadata
+      const tempDir = path.join(process.cwd(), 'uploads', `temp_${Date.now()}`);
+      fs.mkdirSync(tempDir);
+      zip.extractAllTo(tempDir, true);
+
+      // Recursive function to find skill metadata
+      const findSkillRoot = (dir: string): { root: string, type: 'skill' | 'package' | 'markdown', data: any } | null => {
+        const items = fs.readdirSync(dir);
+        
+        // Priority 1: skill.json or .mcp.json
+        const skillJson = items.find(i => i.toLowerCase() === 'skill.json' || i.toLowerCase() === '.mcp.json');
+        if (skillJson) {
+          try {
+            const data = JSON.parse(fs.readFileSync(path.join(dir, skillJson), 'utf-8'));
+            // If it's an MCP config, map it to our skill structure
+            if (skillJson.toLowerCase() === '.mcp.json') {
+              return {
+                root: dir,
+                type: 'skill',
+                data: {
+                  id: (data.name || path.basename(dir)).replace(/[^a-z0-9]/gi, '-').toLowerCase() + '-' + Date.now(),
+                  name: data.name || path.basename(dir),
+                  description: data.description || 'MCP Skill package',
+                  version: data.version || '1.0.0',
+                  type: 'MCP',
+                  provider: 'Local',
+                  engine: 'MCP',
+                  status: 'active',
+                  icon: 'cpu',
+                  author: {
+                    name: 'Local User',
+                    handle: '@local',
+                    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=local'
+                  },
+                  stats: { stars: 0, downloads: 0, installs: 0 },
+                  security: { confidence: 'HIGH', message: 'MCP standard package' },
+                  readme: fs.existsSync(path.join(dir, 'README.md')) ? fs.readFileSync(path.join(dir, 'README.md'), 'utf-8') : '# ' + (data.name || 'MCP Skill')
+                }
+              };
+            }
+            return { root: dir, type: 'skill', data };
+          } catch (e) { console.error('Error parsing metadata JSON', e); }
+        }
+
+        // Priority 2: package.json
+        const packageJson = items.find(i => i.toLowerCase() === 'package.json');
+        if (packageJson) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(dir, packageJson), 'utf-8'));
+            const data = {
+              id: pkg.name.replace(/[^a-z0-9]/gi, '-').toLowerCase(),
+              name: pkg.name,
+              description: pkg.description || 'No description provided',
+              version: pkg.version || '1.0.0',
+              type: 'Plugin',
+              provider: 'Local',
+              engine: 'Node.js',
+              status: 'active',
+              icon: 'box',
+              author: {
+                name: pkg.author || 'Unknown',
+                handle: '@local',
+                avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=local'
+              },
+              stats: { stars: 0, downloads: 0, installs: 0 },
+              security: { confidence: 'HIGH', message: 'Locally installed' },
+              readme: fs.existsSync(path.join(dir, 'README.md')) ? fs.readFileSync(path.join(dir, 'README.md'), 'utf-8') : '# ' + pkg.name
+            };
+            return { root: dir, type: 'package', data };
+          } catch (e) { console.error('Error parsing package.json', e); }
+        }
+
+        // Priority 3: SKILL.md
+        const skillMd = items.find(i => i.toLowerCase() === 'skill.md');
+        if (skillMd) {
+          const readmeContent = fs.readFileSync(path.join(dir, skillMd), 'utf-8');
+          const firstLine = readmeContent.split('\n')[0].replace(/^#+\s*/, '').trim();
+          const originalName = req.file!.originalname.replace('.zip', '');
+          const name = firstLine || originalName;
+          
+          const data = {
+            id: originalName.replace(/[^a-z0-9]/gi, '-').toLowerCase() + '-' + Date.now(),
+            name: name,
+            description: 'Skill imported from Markdown package',
+            version: '1.0.0',
+            type: 'Utility',
+            provider: 'Local',
+            engine: 'Markdown',
+            status: 'active',
+            icon: 'file-text',
+            author: {
+              name: 'Local User',
+              handle: '@local',
+              avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=local'
+            },
+            stats: { stars: 0, downloads: 0, installs: 0 },
+            security: { confidence: 'MEDIUM', message: 'Imported from Markdown structure' },
+            readme: readmeContent
+          };
+          return { root: dir, type: 'markdown', data };
+        }
+
+        // Recurse into subdirectories
+        for (const item of items) {
+          const fullPath = path.join(dir, item);
+          if (fs.statSync(fullPath).isDirectory()) {
+            const found = findSkillRoot(fullPath);
+            if (found) return found;
+          }
+        }
+
+        return null;
+      };
+
+      let skillInfo = findSkillRoot(tempDir);
+
+      // If no metadata found, create a default one based on the ZIP name
+      if (!skillInfo) {
+        const originalName = req.file!.originalname.replace('.zip', '');
+        const data = {
+          id: originalName.replace(/[^a-z0-9]/gi, '-').toLowerCase() + '-' + Date.now(),
+          name: originalName,
+          description: 'Custom skill package',
+          version: '1.0.0',
+          type: 'Utility',
+          provider: 'Local',
+          engine: 'General',
+          status: 'active',
+          icon: 'box',
+          author: {
+            name: 'Local User',
+            handle: '@local',
+            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=local'
+          },
+          stats: { stars: 0, downloads: 0, installs: 0 },
+          security: { confidence: 'MEDIUM', message: 'Imported package' },
+          readme: '# ' + originalName + '\n\nCustom skill package imported from ZIP.'
+        };
+        skillInfo = { root: tempDir, type: 'markdown', data };
+      }
+
+      const { root: skillRoot, data: skillData } = skillInfo;
+
+      // Move to final destination
+      const finalDest = path.join(skillsDir, skillData.id);
+      if (fs.existsSync(finalDest)) {
+        fs.rmSync(finalDest, { recursive: true, force: true });
+      }
+      
+      // If the root is a subfolder, we move its contents. If it's the tempDir itself, we rename it.
+      if (skillRoot === tempDir) {
+        fs.renameSync(tempDir, finalDest);
+      } else {
+        fs.mkdirSync(finalDest, { recursive: true });
+        const items = fs.readdirSync(skillRoot);
+        for (const item of items) {
+          fs.renameSync(path.join(skillRoot, item), path.join(finalDest, item));
+        }
+        // Cleanup tempDir
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+
+      // Add local path to metadata
+      skillData.localPath = finalDest;
+
+      // Save to database
+      service.createSkill(skillData);
+
+      // Cleanup ZIP
+      fs.unlinkSync(zipPath);
+
+      res.status(201).json({ success: true, skill: skillData });
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({ error: 'Failed to process skill package' });
     }
   });
 

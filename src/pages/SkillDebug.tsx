@@ -28,7 +28,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Edit2,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { Header } from '../components/Layout';
@@ -74,6 +75,8 @@ interface ConsoleMessage {
   }[];
 }
 
+import { motion, AnimatePresence } from 'motion/react';
+
 export default function SkillDebug() {
   const { id } = useParams<{ id: string }>();
   const { getSkill, skills } = useSkills();
@@ -96,6 +99,7 @@ export default function SkillDebug() {
   const [promptInput, setPromptInput] = useState('');
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [isMobileConfigOpen, setIsMobileConfigOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -214,6 +218,108 @@ export default function SkillDebug() {
     }));
   };
 
+  const ConfigurationContent = () => (
+    <div className="space-y-8">
+        {/* Provider Section */}
+        <div className="space-y-3">
+            <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider ml-1">Runtime</h3>
+            
+            <div className="space-y-4">
+                <div className="group">
+                    <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">Provider</label>
+                    <div className="relative">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-focus-within:text-blue-500 transition-colors">
+                            <Server size={16} strokeWidth={2} />
+                        </div>
+                        <select 
+                            value={selectedProvider}
+                            onChange={(e) => setSelectedProvider(e.target.value)}
+                            className="w-full bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl pl-10 pr-8 py-3 text-[13px] font-medium text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none appearance-none cursor-pointer"
+                        >
+                            {Object.keys(PROVIDERS).map(p => (
+                                <option key={p} value={p}>{PROVIDERS[p as keyof typeof PROVIDERS].name}</option>
+                            ))}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    </div>
+                </div>
+
+                {selectedProvider !== 'Custom' ? (
+                    <div className="group">
+                        <label className="block text-[13px] font-medium text-gray-900 mb-2 ml-1">Model</label>
+                        <div className="relative">
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-focus-within:text-blue-500 transition-colors">
+                                <Cpu size={16} strokeWidth={2} />
+                            </div>
+                            <select 
+                                value={selectedModel}
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                                className="w-full bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl pl-10 pr-8 py-3 text-[13px] font-medium text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none appearance-none cursor-pointer"
+                            >
+                                {PROVIDERS[selectedProvider as keyof typeof PROVIDERS].models.map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-4 p-4 bg-[#F5F5F7] rounded-2xl">
+                        <div>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Base URL</label>
+                            <input 
+                                type="text"
+                                value={customBaseUrl}
+                                onChange={(e) => setCustomBaseUrl(e.target.value)}
+                                placeholder="https://api.example.com/v1"
+                                className="w-full bg-white border-none rounded-lg px-3 py-2.5 text-[13px] shadow-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all placeholder:text-gray-400"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">API Key</label>
+                            <input 
+                                type="password"
+                                value={customApiKey}
+                                onChange={(e) => setCustomApiKey(e.target.value)}
+                                placeholder="sk-..."
+                                className="w-full bg-white border-none rounded-lg px-3 py-2.5 text-[13px] shadow-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all placeholder:text-gray-400"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Model Name</label>
+                            <input 
+                                type="text"
+                                value={customModel}
+                                onChange={(e) => setCustomModel(e.target.value)}
+                                placeholder="my-custom-model"
+                                className="w-full bg-white border-none rounded-lg px-3 py-2.5 text-[13px] shadow-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all placeholder:text-gray-400"
+                            />
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+
+        <div className="w-full h-px bg-gray-100" />
+
+        {/* System Prompt Section */}
+        <div className="space-y-3">
+            <div className="flex items-center justify-between ml-1">
+                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">System Prompt</h3>
+                <button className="text-[11px] font-medium text-blue-500 hover:text-blue-600 transition-colors">Reset</button>
+            </div>
+            <textarea 
+                className="w-full h-40 bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl p-4 text-[13px] leading-relaxed resize-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all placeholder:text-gray-400"
+                placeholder="You are a helpful assistant..."
+                defaultValue={skill.systemPrompt || ''}
+            />
+            <p className="text-[11px] text-gray-400 ml-1">
+                Define the core behavior and personality of your agent.
+            </p>
+        </div>
+    </div>
+  );
+
   return (
     <div className="h-screen bg-[#f9f9f9] font-sans flex flex-col overflow-hidden">
       <style>{`
@@ -232,7 +338,7 @@ export default function SkillDebug() {
           background: #d1d5db;
         }
       `}</style>
-      <Header showBack={true} onOpenSettings={() => {}}>
+      <Header showBack={true} onOpenSettings={() => setIsMobileConfigOpen(true)}>
         <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
             <span>/</span>
             <span>{skill.name}</span>
@@ -243,121 +349,102 @@ export default function SkillDebug() {
 
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-4 lg:px-6 pb-6 pt-20 max-w-[1600px] mx-auto w-full overflow-hidden">
             
-        {/* Left Panel: Configuration */}
-        <div className="w-full lg:w-[320px] flex-shrink-0 flex flex-col gap-4 h-full overflow-hidden">
-            
-            {/* Tabs */}
-            <div className="flex items-center gap-1 p-1 bg-gray-200/50 rounded-lg w-full flex-shrink-0">
-                <button
-                    onClick={() => setActiveTab('config')}
-                    className={`flex-1 py-1.5 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all ${
-                        activeTab === 'config' 
-                        ? 'bg-white text-gray-900 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    <Settings size={14} />
-                    Config
-                </button>
-                <button
-                    onClick={() => setActiveTab('docs')}
-                    className={`flex-1 py-1.5 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all ${
-                        activeTab === 'docs' 
-                        ? 'bg-white text-gray-900 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    <FileText size={14} />
-                    Docs
-                </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-sm p-5 custom-scrollbar">
-                {activeTab === 'config' ? (
-                    <div className="space-y-6">
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Provider</label>
-                            <div className="relative">
-                                <Server className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                                <select 
-                                    value={selectedProvider}
-                                    onChange={(e) => setSelectedProvider(e.target.value)}
-                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none appearance-none transition-all"
-                                >
-                                    {Object.keys(PROVIDERS).map(p => (
-                                        <option key={p} value={p}>{PROVIDERS[p as keyof typeof PROVIDERS].name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        {selectedProvider !== 'Custom' ? (
-                                <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Model</label>
-                                <div className="relative">
-                                    <Cpu className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                                    <select 
-                                        value={selectedModel}
-                                        onChange={(e) => setSelectedModel(e.target.value)}
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none appearance-none transition-all"
-                                    >
-                                        {PROVIDERS[selectedProvider as keyof typeof PROVIDERS].models.map(m => (
-                                            <option key={m} value={m}>{m}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Base URL</label>
-                                    <input 
-                                        type="text"
-                                        value={customBaseUrl}
-                                        onChange={(e) => setCustomBaseUrl(e.target.value)}
-                                        placeholder="https://api.example.com/v1"
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1.5">API Key</label>
-                                    <input 
-                                        type="password"
-                                        value={customApiKey}
-                                        onChange={(e) => setCustomApiKey(e.target.value)}
-                                        placeholder="sk-..."
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Name</label>
-                                    <input 
-                                        type="text"
-                                        value={customModel}
-                                        onChange={(e) => setCustomModel(e.target.value)}
-                                        placeholder="my-custom-model"
-                                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                                    />
-                                </div>
-                            </div>
-                        )}
+            {/* Left Panel: Configuration (Desktop) */}
+            <div className="hidden lg:flex w-[340px] flex-shrink-0 flex-col gap-6 h-full overflow-hidden bg-transparent border-none">
+                
+                {/* Apple-style Segmented Control */}
+                <div className="flex-shrink-0 px-1">
+                    <div className="relative flex items-center bg-[#E5E5EA] p-1 rounded-lg w-full h-9">
+                        {/* Active Tab Background Animation */}
+                        <motion.div
+                            layoutId="activeTab"
+                            className="absolute bg-white shadow-sm rounded-[6px] h-7 top-1"
+                            initial={false}
+                            animate={{
+                                width: 'calc(50% - 4px)',
+                                x: activeTab === 'config' ? 0 : '100%'
+                            }}
+                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                        />
                         
-                        <div className="pt-4 border-t border-gray-100">
-                            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">System Prompt</h3>
-                            <textarea 
-                                className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs resize-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                placeholder="You are a helpful assistant..."
-                                defaultValue={skill.systemPrompt || ''}
-                            />
-                        </div>
+                        <button
+                            onClick={() => setActiveTab('config')}
+                            className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
+                                activeTab === 'config' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            Configuration
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('docs')}
+                            className={`relative flex-1 text-[13px] font-medium z-10 transition-colors duration-200 ${
+                                activeTab === 'docs' ? 'text-black' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            Documentation
+                        </button>
                     </div>
-                ) : (
-                    <div className="prose prose-sm max-w-none">
-                        <Markdown>{skill.readme || '# No documentation available'}</Markdown>
-                    </div>
-                )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar px-1 pb-4">
+                    <AnimatePresence mode="wait">
+                        {activeTab === 'config' ? (
+                            <motion.div 
+                                key="config"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                            >
+                                <ConfigurationContent />
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="docs"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                                className="prose prose-sm max-w-none prose-headings:font-semibold prose-p:text-gray-600 prose-pre:bg-[#F5F5F7] prose-pre:border-none prose-pre:rounded-xl"
+                            >
+                                <Markdown>{skill.readme || '# No documentation available'}</Markdown>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
             </div>
-        </div>
+
+            {/* Mobile Configuration Modal */}
+            <AnimatePresence>
+                {isMobileConfigOpen && (
+                    <>
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] lg:hidden"
+                            onClick={() => setIsMobileConfigOpen(false)}
+                        />
+                        <motion.div 
+                            initial={{ y: '100%' }}
+                            animate={{ y: 0 }}
+                            exit={{ y: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                            className="fixed inset-x-0 bottom-0 top-10 bg-white shadow-2xl z-[70] rounded-t-2xl overflow-hidden flex flex-col lg:hidden"
+                        >
+                            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+                                <h2 className="text-lg font-bold">Configuration</h2>
+                                <button onClick={() => setIsMobileConfigOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6">
+                                <ConfigurationContent />
+                            </div>
+                        </motion.div>
+                    </>
+                )}
+            </AnimatePresence>
 
         {/* Right Panel: Intelligence Console */}
         <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
