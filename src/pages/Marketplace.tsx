@@ -79,7 +79,34 @@ const FilterBar = ({ activeFilter, onFilterChange }: { activeFilter: string, onF
   );
 };
 
+const CategoryTabs = ({ activeCategory, onCategoryChange }: { activeCategory: string, onCategoryChange: (c: 'Skill' | 'Claude Agent SDK Plugin') => void }) => {
+  const { t } = useLanguage();
+  return (
+    <div className="flex justify-center mb-6">
+      <div className="bg-gray-200/50 p-1 rounded-full inline-flex">
+        <button
+          onClick={() => onCategoryChange('Skill')}
+          className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${
+            activeCategory === 'Skill' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          {t('home.tabs.skills')}
+        </button>
+        <button
+          onClick={() => onCategoryChange('Claude Agent SDK Plugin')}
+          className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${
+            activeCategory === 'Claude Agent SDK Plugin' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          {t('home.tabs.claudePlugins')}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function Marketplace() {
+  const [category, setCategory] = useState<'Skill' | 'Claude Agent SDK Plugin'>('Skill');
   const [filter, setFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -88,6 +115,10 @@ export default function Marketplace() {
   const navigate = useNavigate();
 
   const filteredSkills = skills.filter(skill => {
+    const isClaudePlugin = skill.engine === 'Claude Agent SDK';
+    if (category === 'Skill' && isClaudePlugin) return false;
+    if (category === 'Claude Agent SDK Plugin' && !isClaudePlugin) return false;
+
     const matchesFilter = filter === 'All' || skill.type === filter;
     const matchesSearch = skill.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           skill.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -110,6 +141,8 @@ export default function Marketplace() {
       
       <main>
         <Hero />
+        
+        <CategoryTabs activeCategory={category} onCategoryChange={setCategory} />
         
         <SearchBar value={searchQuery} onChange={setSearchQuery} />
         

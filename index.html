@@ -4,6 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Suppress MetaMask connection errors caused by browser extensions globally
+      const suppressMetaMaskError = (msg) => {
+        if (typeof msg === 'string' && msg.includes('Failed to connect to MetaMask')) {
+          return true;
+        }
+        if (msg && msg.message && typeof msg.message === 'string' && msg.message.includes('Failed to connect to MetaMask')) {
+          return true;
+        }
+        return false;
+      };
+
+      const originalConsoleError = console.error;
+      console.error = (...args) => {
+        if (suppressMetaMaskError(args[0])) return;
+        originalConsoleError.apply(console, args);
+      };
+
+      const originalConsoleWarn = console.warn;
+      console.warn = (...args) => {
+        if (suppressMetaMaskError(args[0])) return;
+        originalConsoleWarn.apply(console, args);
+      };
+
+      window.addEventListener('error', (event) => {
+        if (suppressMetaMaskError(event.message)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+
+      window.addEventListener('unhandledrejection', (event) => {
+        if (suppressMetaMaskError(event.reason)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

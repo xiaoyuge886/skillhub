@@ -5,8 +5,8 @@ import { LogIn, UserPlus, AlertCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const Login: React.FC = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();

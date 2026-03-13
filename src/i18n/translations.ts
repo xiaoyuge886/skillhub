@@ -46,6 +46,10 @@ export const translations = {
         creative: 'Creative',
         utility: 'Utility',
       },
+      tabs: {
+        skills: 'Skills',
+        claudePlugins: 'Claude Agent SDK Plugins'
+      },
       newSkill: 'New Skill',
       noSkillsFound: 'No skills found matching your criteria.',
       clearFilters: 'Clear filters',
@@ -224,6 +228,10 @@ export const translations = {
         coding: '编程',
         creative: '创意',
         utility: '工具',
+      },
+      tabs: {
+        skills: '技能 (Skills)',
+        claudePlugins: 'Claude Agent SDK 插件'
       },
       newSkill: '新建技能',
       noSkillsFound: '未找到符合条件的技能。',

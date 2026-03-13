@@ -14,6 +14,7 @@ import {
   Mic,
   Video,
   CheckCircle2,
+  Check,
   ChevronDown,
   ChevronRight,
   Activity,
@@ -37,13 +38,25 @@ import { useSkills } from '../context/SkillContext';
 import { useLanguage } from '../context/LanguageContext';
 
 const PROVIDERS = {
+  'Gemini': {
+    name: 'Google Gemini',
+    models: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash-latest'],
+  },
+  'Claude': {
+    name: 'Anthropic Claude',
+    models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
+  },
   'Anthropic': {
-    name: 'Anthropic',
+    name: 'Anthropic Claude',
     models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
   },
   'OpenAI': {
     name: 'OpenAI',
     models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  },
+  'Mistral': {
+    name: 'Mistral AI',
+    models: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
   },
   'Custom': {
     name: 'Custom (OpenAI Compatible)',
@@ -92,7 +105,7 @@ export default function SkillDebug() {
 
   // Debug State
   const [selectedProvider, setSelectedProvider] = useState<Provider>('Anthropic');
-  const [selectedModel, setSelectedModel] = useState<string>(PROVIDERS['Anthropic'].models[0]);
+  const [selectedModel, setSelectedModel] = useState<string>(PROVIDERS['Anthropic']?.models?.[0] || '');
   
   // Custom Config State
   const [customBaseUrl, setCustomBaseUrl] = useState('');
@@ -104,6 +117,7 @@ export default function SkillDebug() {
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,7 +140,10 @@ export default function SkillDebug() {
 
   useEffect(() => {
     if (selectedProvider !== 'Custom') {
-      setSelectedModel(PROVIDERS[selectedProvider as keyof typeof PROVIDERS].models[0]);
+      const provider = PROVIDERS[selectedProvider as keyof typeof PROVIDERS];
+      if (provider && provider.models && provider.models.length > 0) {
+        setSelectedModel(provider.models[0]);
+      }
     }
   }, [selectedProvider]);
 
@@ -308,7 +325,7 @@ export default function SkillDebug() {
                                 onChange={(e) => setSelectedModel(e.target.value)}
                                 className="w-full bg-[#F5F5F7] hover:bg-[#E8E8ED] border-none rounded-xl pl-10 pr-8 py-3 text-[13px] font-medium text-gray-900 focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none appearance-none cursor-pointer"
                             >
-                                {PROVIDERS[selectedProvider as keyof typeof PROVIDERS].models.map(m => (
+                                {PROVIDERS[selectedProvider as keyof typeof PROVIDERS]?.models?.map(m => (
                                     <option key={m} value={m}>{m}</option>
                                 ))}
                             </select>
@@ -701,6 +718,45 @@ export default function SkillDebug() {
                                     </button>
                                 </div>
                             </div>
+                            
+                            {/* Model Selector */}
+                            <div className="mt-3 relative">
+                                <button
+                                    onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    {PROVIDERS[selectedProvider as keyof typeof PROVIDERS]?.name || selectedProvider} - {selectedModel}
+                                    <ChevronDown size={12} />
+                                </button>
+                                {isModelSelectorOpen && (
+                                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                                        {Object.entries(PROVIDERS).map(([providerKey, provider]) => (
+                                            <div key={providerKey}>
+                                                <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-100">
+                                                    {provider.name}
+                                                </div>
+                                                {provider.models.map(model => (
+                                                    <button
+                                                        key={model}
+                                                        onClick={() => {
+                                                            setSelectedProvider(providerKey as Provider);
+                                                            setSelectedModel(model);
+                                                            setIsModelSelectorOpen(false);
+                                                        }}
+                                                        className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between ${
+                                                            selectedProvider === providerKey && selectedModel === model ? 'text-black font-medium' : 'text-gray-600'
+                                                        }`}
+                                                    >
+                                                        {model}
+                                                        {selectedProvider === providerKey && selectedModel === model && <Check size={12} />}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            
                             <div className="text-center mt-3">
                                 <span className="text-[11px] text-gray-400 font-medium">{t('debug.placeholder.disclaimer')}</span>
                             </div>
